@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Testing / tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Local data — never commit books, databases or generated corpora
+out/
+*.sqlite3
+*.db
+*.tmx
+*.tbx
+*.xliff
+*.xlsx
+models/
+data/books/
+data/private/
+data/pdfs/
+
+# Secrets — never commit tokens
+.env
+*.token
+ghtoken*

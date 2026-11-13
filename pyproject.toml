@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orthopaedic-knowledge"
+version = "0.1.0"
+description = "منظومة المعرفة والترجمة العظمية — Orthopaedic Knowledge & Translation System (Local-First, Manjaro, EN–AR sentence alignment + concept-oriented terminology)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "DrAbdulmalek" }]
+keywords = [
+  "orthopaedics", "translation", "alignment", "terminology", "tmx", "tbx",
+  "xliff", "arabic", "medical-nlp", "local-first", "syrian-arabic",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Healthcare Industry",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Natural Language :: Arabic",
+  "Natural Language :: English",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Medical Science Apps.",
+  "Topic :: Text Processing :: Linguistic",
+]
+
+# المبدأ: الاعتماد الأقصى على المكتبة القياسية.
+# openpyxl وحيدة هنا لأن مخرج XLSX مطلب أساسي للمنظومة (خفيفة، محلية، بلا شبكة).
+dependencies = [
+  "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+# استخراج نصوص PDF واعي للتخطيط (محلي بالكامل)
+pdf = ["PyMuPDF>=1.24"]
+# تضمينات دلالية محلية عبر ONNX Runtime — ملفات النموذج تُوفر محلياً فقط،
+# لا تنزيل ولا استدعاء سحابي أبداً (BGE-M3 / paraphrase-multilingual-MiniLM-L12-v2)
+semantic = ["onnxruntime>=1.17", "numpy>=1.26", "tokenizers>=0.15"]
+# تحليلات قراءة فقط فوق القاعدة المحلية (DuckDB — اختياري تماماً)
+analytics = ["duckdb>=0.10"]
+dev = ["pytest>=8.0"]
+all = ["PyMuPDF>=1.24", "onnxruntime>=1.17", "numpy>=1.26", "tokenizers>=0.15", "duckdb>=0.10", "pytest>=8.0"]
+
+[project.scripts]
+orthok = "orthopaedic_knowledge.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["orthopaedic_knowledge*", "pilot*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
