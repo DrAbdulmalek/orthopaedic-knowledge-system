@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -118,12 +119,12 @@ def create_app(db_path: str | Path) -> FastAPI:
     if not path.exists():
         raise FileNotFoundError(f"قاعدة التوليف غير موجودة: {path}")
     app = FastAPI(title="orthok review", docs_url=None, redoc_url=None)
-    holder: dict = {}
 
     def get_conn():
-        if "conn" not in holder:
-            holder["conn"] = sstore.connect(path)
-        return holder["conn"]
+        # اتصال لكل طلب — SQLite محدد بخيط المنشأ، ومشاركة اتصال واحد
+        # بين خيوط ASGI المختلفة خطأ بنيوي (أفشى على CI). الفتح رخيص
+        # والمخطط مفروض عند كل فتح، فالأمان هنا مجاني.
+        return sstore.connect(path)
 
     @app.get("/", response_class=HTMLResponse)
     def home() -> str:
@@ -131,12 +132,12 @@ def create_app(db_path: str | Path) -> FastAPI:
 
     @app.get("/api/summary")
     def summary() -> dict:
-        conn = get_conn()
-        conflicts = {"BLOCKED": 0, "UNPROVEN": 0, "PROVEN": 0}
-        for r in conn.execute("SELECT status, COUNT(*) n FROM conflicts GROUP BY status"):
-            conflicts[r["status"]] = r["n"]
-        deltas = conn.execute("SELECT COUNT(*) n FROM deltas").fetchone()["n"]
-        spine = sstore.fetch_spine_source(conn)
+        with closing(get_conn()) as conn:
+            conflicts = {"BLOCKED": 0, "UNPROVEN": 0, "PROVEN": 0}
+            for r in conn.execute("SELECT status, COUNT(*) n FROM conflicts GROUP BY status"):
+                conflicts[r["status"]] = r["n"]
+            deltas = conn.execute("SELECT COUNT(*) n FROM deltas").fetchone()["n"]
+            spine = sstore.fetch_spine_source(conn)
         return {
             "conflicts": conflicts, "deltas": deltas,
             "spine_book": spine[0] if spine else None,
@@ -147,16 +148,18 @@ def create_app(db_path: str | Path) -> FastAPI:
     def conflicts(status: str | None = Query(default=None)) -> list[dict]:
         if status is not None and status not in sstore.RESOLVE_STATUSES:
             raise HTTPException(400, f"status غير قانوني: {status!r}")
-        return sstore.fetch_conflicts(get_conn(), status)
+        with closing(get_conn()) as conn:
+            return sstore.fetch_conflicts(conn, status)
 
     @app.post("/api/conflicts/{conflict_id}/resolve")
     def resolve(conflict_id: int, body: ResolveBody) -> dict:
         try:
-            return sstore.resolve_conflict(
-                get_conn(), conflict_id,
-                status=body.status, choice=body.choice,
-                text=body.text, reviewer=body.reviewer,
-            )
+            with closing(get_conn()) as conn:
+                return sstore.resolve_conflict(
+                    conn, conflict_id,
+                    status=body.status, choice=body.choice,
+                    text=body.text, reviewer=body.reviewer,
+                )
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except LookupError as exc:
@@ -164,15 +167,16 @@ def create_app(db_path: str | Path) -> FastAPI:
 
     @app.get("/api/deltas")
     def deltas() -> list[dict]:
-        return sstore.fetch_deltas(get_conn())
+        with closing(get_conn()) as conn:
+            return sstore.fetch_deltas(conn)
 
     @app.get("/api/export/unified.md", response_class=PlainTextResponse)
     def export_unified() -> str:
-        conn = get_conn()
-        spine = sstore.fetch_spine_source(conn)
-        if spine is None:
-            raise HTTPException(404, "لا عمود فقري في هذه القاعدة")
-        return build_unified_markdown(conn, spine[0], spine[1])
+        with closing(get_conn()) as conn:
+            spine = sstore.fetch_spine_source(conn)
+            if spine is None:
+                raise HTTPException(404, "لا عمود فقري في هذه القاعدة")
+            return build_unified_markdown(conn, spine[0], spine[1])
 
     return app
 
