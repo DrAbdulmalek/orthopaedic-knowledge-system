@@ -83,9 +83,28 @@ class CorrectionsStore:
             self._log(rule["correction_id"], "term", en_norm, "SKIPPED", "لا مفهوم بعد")
             return 0
         concept_id = rows[0]["concept_id"]
+        new_norm = _norm(rule["new_value"])
+        # حماية PROVEN الصارمة (مرحلة 1): وجود مصطلح عربي PROVEN بمرتبة preferred
+        # في المفهوم يمنع أي تصحيح آلي مختلف — يُدوَّن BLOCKED ولا يُنَفَّذ؛
+        # حتى القيمة الجديدة نفسها لا تُرقّى فوق مصطلح PROVEN قائم.
+        proven = knowledge_conn.execute(
+            """SELECT term_text, term_norm FROM terms
+               WHERE concept_id=? AND lang='ar' AND status='PROVEN' AND role='preferred'
+               LIMIT 1""",
+            (concept_id,),
+        ).fetchone()
+        if proven is not None and proven["term_norm"] != new_norm:
+            self._log(
+                rule["correction_id"],
+                "term",
+                f"{concept_id}/{en_norm}",
+                "BLOCKED",
+                f"مصطلح PROVEN محمي ({proven['term_text']}) — لا يُستبدل آلياً",
+            )
+            return 0
         # ترقية المصطلح المصحح (أو إدراجه إن غاب) وتنزيل البقية إلى synonyms.
-        # حماية PROVEN: المصطلح الذي ثبّته مراجع بشرياً لا تنزّله قاعدة آلية —
-        # التصحيح يضيف تفضيله الجديد دون المساس بالحالة المحمية.
+        # الطبقة الثانية من الحماية: حتى لو شُطب شرط أعلاه فلا يُنزَّل PROVEN،
+        # ولا تُستبدل قيمة PROVEN قائمة في الـ upsert.
         knowledge_conn.execute(
             """UPDATE terms SET role='synonym', dialect_weight=0.0,
                    context_note='demoted by correction #' || ?
@@ -98,9 +117,10 @@ class CorrectionsStore:
                VALUES (?, 'ar', ?, ?, 'preferred', 1.0, ?, ?, 'UNPROVEN')
                ON CONFLICT(concept_id, lang, term_norm) DO UPDATE SET
                    role='preferred', dialect_weight=1.0,
-                   context_note=excluded.context_note, source=excluded.source""",
+                   context_note=excluded.context_note, source=excluded.source
+               WHERE terms.status != 'PROVEN'""",
             (
-                concept_id, rule["new_value"], _norm(rule["new_value"]),
+                concept_id, rule["new_value"], new_norm,
                 f"correction #{rule['correction_id']} by {rule['reviewer'] or 'reviewer'}",
                 f"CORRECTION:{rule['correction_id']}",
             ),

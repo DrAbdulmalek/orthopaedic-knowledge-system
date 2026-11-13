@@ -68,6 +68,42 @@ def _cmd_ingest_pdf(args) -> int:
     return 0
 
 
+def _load_en_doc(path: str, book_code: str, chapter: str, fmt: str):
+    from .ingestion import blocks_from_jsonl, blocks_from_text
+
+    text = Path(path).read_text(encoding="utf-8")
+    loader = blocks_from_jsonl if fmt == "jsonl" else blocks_from_text
+    return loader(text, book_code, chapter, "en")
+
+
+def _cmd_synthesize(args) -> int:
+    from .synthesis import run_synthesis
+
+    spine = (args.spine_code, _load_en_doc(args.spine, args.spine_code, args.chapter, args.format))
+    others = [
+        (code, _load_en_doc(path, code, args.chapter, args.format))
+        for path, code in args.other
+    ]
+    result, outputs = run_synthesis(
+        spine, others, args.db,
+        model_dir=args.model_dir,
+        dup_threshold=args.dup_threshold,
+        link_floor=args.link_floor,
+        out_dir=args.out,
+    )
+    print(json.dumps({"pipeline": result.to_dict(), "outputs": outputs},
+                     ensure_ascii=False, indent=2))
+    return 0
+
+
+def _cmd_synthesize_demo(args) -> int:
+    from pilot.run_synthesis_demo import run_official_synthesis_demo
+
+    summary = run_official_synthesis_demo(Path(args.out))
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 0
+
+
 def _cmd_export(args) -> int:
     from .storage import connect
     from .integration import export_csv, export_tbx, export_tmx, export_xliff, export_xlsx
@@ -183,6 +219,25 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--lang", choices=["en", "ar"], required=True)
     sp.add_argument("--out", required=True, help="ملف JSONL الناتج (لأمر align --format jsonl)")
     sp.set_defaults(func=_cmd_ingest_pdf)
+
+    sp = sub.add_parser("synthesize",
+                        help="دمج كتب إنجليزية: عمود فقري + إضافات + جدول تعارضات (المرحلة 2)")
+    sp.add_argument("--spine", required=True, help="ملف العمود الفقري (JSONL من ingest-pdf أو نص خام)")
+    sp.add_argument("--spine-code", required=True, help="رمز كتاب العمود الفقري، مثال: MILLER")
+    sp.add_argument("--other", action="append", nargs=2, metavar=("PATH", "CODE"), required=True,
+                    help="كتاب آخر: مسار + رمز — كرر الخيار لكل كتاب (حتى 4 كتب أخرى)")
+    sp.add_argument("--chapter", required=True, help="مثال: CH04")
+    sp.add_argument("--format", choices=["jsonl", "text"], default="jsonl")
+    sp.add_argument("--model-dir", default=None, help="نموذج ONNX محلي للتشابه الدلالي (اختياري)")
+    sp.add_argument("--dup-threshold", type=float, default=0.8)
+    sp.add_argument("--link-floor", type=float, default=0.55)
+    sp.add_argument("--db", default="out/synthesis/synthesis.db")
+    sp.add_argument("--out", default="out/synthesis", help="مجلد المخرجات: unified_chapter.md + synthesis_report.html")
+    sp.set_defaults(func=_cmd_synthesize)
+
+    sp = sub.add_parser("synthesize-demo", help="دمج ثلاثي وهمي رسمي (MILLER+ROCKWOOD+APLEY)")
+    sp.add_argument("--out", default="out/synth_demo")
+    sp.set_defaults(func=_cmd_synthesize_demo)
 
     sp = sub.add_parser("export", help="تصدير: tmx,tbx,xliff,csv,xlsx")
     sp.add_argument("--knowledge-db", default=DEFAULTS.storage.knowledge_db)

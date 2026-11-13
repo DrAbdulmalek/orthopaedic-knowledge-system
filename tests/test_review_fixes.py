@@ -90,9 +90,11 @@ def test_tbx_excludes_blocked_concepts():
         conn.close()
 
 
-# ─────────────────────────── 2) حماية PROVEN في التصحيحات ───────────────────────
+# ─────────────────────────── 2) حماية PROVEN الصارمة في التصحيحات ───────────────
 
-def test_correction_never_demotes_proven_term(tmp_path):
+def test_correction_blocked_when_proven_preferred_differs(tmp_path):
+    """الحماية الصارمة: مصطلح PROVEN بمرتبة preferred يحجب أي تصحيح آلي مختلف —
+    المحاولة تُدوَّن BLOCKED ولا يتغير شيء في القاعدة."""
     store = CorrectionsStore(tmp_path / "c.db")
     conn = connect(tmp_path / "k.db")
     try:
@@ -107,11 +109,39 @@ def test_correction_never_demotes_proven_term(tmp_path):
         )
         conn.commit()
         store.record("term", "cast", "ar_preferred", "الجبيرة الجبسية", reviewer="DR_A")
-        assert store.apply_ar_preferred(conn, "cast") == 1
+        assert store.apply_ar_preferred(conn, "cast") == 0   # حجب، لا تنفيذ
         rows = {r["term_text"]: (r["role"], r["status"]) for r in conn.execute(
             "SELECT term_text, role, status FROM terms WHERE lang='ar'")}
-        assert rows["الجبس"] == ("preferred", "PROVEN")          # لم يُنزَّل — الحماية إلزامية
-        assert rows["الجبيرة الجبسية"][0] == "preferred"
+        assert rows == {"الجبس": ("preferred", "PROVEN")}     # لم يُنزَّل ولم يُضف غيره
+        apps = store.applications()
+        assert apps[-1]["result"] == "BLOCKED" and "PROVEN" in apps[-1]["detail"]
+    finally:
+        conn.close()
+        store.close()
+
+
+def test_correction_applies_when_no_proven_conflict(tmp_path):
+    """بلا PROVEN: التصحيح يعمل كالمعتاد، وطبقتا الحماية (فحص مسبق +
+    status != 'PROVEN' في UPDATE/UPSERT) تبقيان شبكة أمان كاملة."""
+    store = CorrectionsStore(tmp_path / "c.db")
+    conn = connect(tmp_path / "k.db")
+    try:
+        conn.execute("INSERT INTO concepts (concept_id) VALUES ('C-000002')")
+        conn.execute(
+            """INSERT INTO terms (concept_id, lang, term_text, term_norm, role, status)
+               VALUES ('C-000002','en','Splint','splint','preferred','UNPROVEN')"""
+        )
+        conn.execute(
+            """INSERT INTO terms (concept_id, lang, term_text, term_norm, role, status)
+               VALUES ('C-000002','ar','دعامة','دعامه','preferred','UNPROVEN')"""
+        )
+        conn.commit()
+        store.record("term", "splint", "ar_preferred", "جبيرة", reviewer="DR_A")
+        assert store.apply_ar_preferred(conn, "splint") == 1
+        rows = {r["term_text"]: r["role"] for r in conn.execute(
+            "SELECT term_text, role FROM terms WHERE lang='ar'")}
+        assert rows["جبيرة"] == "preferred"
+        assert rows["دعامة"] == "synonym"                     # نزلت لأنها ليست PROVEN
     finally:
         conn.close()
         store.close()
