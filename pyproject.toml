@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "orthopaedic-knowledge"
-version = "0.2.0"
+version = "0.3.0"
 description = "منظومة المعرفة والترجمة العظمية — Orthopaedic Knowledge & Translation System (Local-First, Manjaro, EN–AR sentence alignment + concept-oriented terminology)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -42,8 +42,10 @@ pdf = ["PyMuPDF>=1.24"]
 semantic = ["onnxruntime>=1.17", "numpy>=1.26", "tokenizers>=0.15"]
 # تحليلات قراءة فقط فوق القاعدة المحلية (DuckDB — اختياري تماماً)
 analytics = ["duckdb>=0.10"]
+# واجهة المراجعة البشرية المحلية (127.0.0.1 فقط) لحسم التعارضات
+review = ["fastapi>=0.110", "uvicorn>=0.27", "httpx>=0.27"]
 dev = ["pytest>=8.0"]
-all = ["PyMuPDF>=1.24", "onnxruntime>=1.17", "numpy>=1.26", "tokenizers>=0.15", "duckdb>=0.10", "pytest>=8.0"]
+all = ["PyMuPDF>=1.24", "onnxruntime>=1.17", "numpy>=1.26", "tokenizers>=0.15", "duckdb>=0.10", "fastapi>=0.110", "uvicorn>=0.27", "httpx>=0.27", "pytest>=8.0"]
 
 [project.scripts]
 orthok = "orthopaedic_knowledge.cli:main"

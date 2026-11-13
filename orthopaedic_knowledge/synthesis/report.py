@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 from .models import SynthesisResult
-from .store import fetch_conflicts, fetch_deltas, fetch_links, fetch_units
+from .store import fetch_conflicts, fetch_deltas, fetch_links, fetch_resolutions, fetch_units
 
 
 def build_unified_markdown(conn, spine_book: str, chapter: str) -> str:
@@ -27,12 +27,22 @@ def build_unified_markdown(conn, spine_book: str, chapter: str) -> str:
     for d in deltas:
         delta_by_anchor.setdefault(d["anchor_unit"], []).append(d)
     conflicts = fetch_conflicts(conn)
+    resolutions = fetch_resolutions(conn)
 
     for u in fetch_units(conn, spine_book):
         if u["kind"] != "body":
             continue
         parts.append(f"\n## {u['unit_id']} (ص.{u['page_first']})\n")
-        parts.append(u["text"] + "\n")
+        res = resolutions.get(u["unit_id"])
+        if res is not None and res.get("choice") in {"other", "custom"}:
+            # قرار المراجع المعتمد يحل محل نص العمود الفقري — الإثبات الأصلي محفوظ أعلاه
+            parts.append(res["text"] + "\n")
+            parts.append(
+                f"> ✅ نص معتمد بشرياً [PROVEN] — قرار «{res['choice']}» "
+                f"بواسطة {res['reviewer']} على التعارض #{res['conflict_id']}.\n"
+            )
+        else:
+            parts.append(u["text"] + "\n")
         for ln in dup_by_other.get(u["unit_id"], []):
             parts.append(f"> ✚ موثّق أيضاً في: {ln['book_code']} — تكرار منهار، لا إعادة نص.\n")
         for d in delta_by_anchor.get(u["unit_id"], []):
@@ -42,7 +52,7 @@ def build_unified_markdown(conn, spine_book: str, chapter: str) -> str:
         parts.append(d["unit_text"] + "\n")
 
     if conflicts:
-        parts.append("\n## ⚠ جدول تعارضات المراجع — بانتظار حسم المراجع (BLOCKED)\n")
+        parts.append("\n## ⚠ جدول تعارضات المراجع — الحسم بشري موثق (الحالة لكل سطر)\n")
         parts.append("| # | النوع | العمود الفقري | الكتاب الآخر | الحالة |\n|---|---|---|---|---|\n")
         for c in conflicts:
             parts.append(

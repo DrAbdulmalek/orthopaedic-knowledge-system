@@ -22,6 +22,10 @@ jobs:
           pip install -e ".[dev]"
       - name: Run tests (no models, no network)
         run: python -m pytest tests -v
+      - name: Review UI tests (FastAPI local — extra deps isolated here)
+        run: |
+          pip install -e ".[dev,review]"
+          python -m pytest tests/test_review_ui.py -v
       - name: Pilot must run clean from scratch
         run: |
           python -m pilot.run_pilot out/pilot > pilot_summary.json

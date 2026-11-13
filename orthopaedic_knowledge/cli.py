@@ -104,6 +104,40 @@ def _cmd_synthesize_demo(args) -> int:
     return 0
 
 
+def _cmd_review(args) -> int:
+    from .review.app import run_server
+
+    if not Path(args.db).exists():
+        print(f"قاعدة التوليف غير موجودة: {args.db} — شغّل synthesize أولاً", file=sys.stderr)
+        return 1
+    print(f"واجهة المراجعة المحلية: http://127.0.0.1:{args.port} (Ctrl+C للإيقاف)")
+    run_server(args.db, args.port)
+    return 0
+
+
+def _cmd_review_export(args) -> int:
+    from .synthesis import store as sstore
+    from .synthesis.report import build_unified_markdown
+
+    if not Path(args.db).exists():
+        print(f"قاعدة التوليف غير موجودة: {args.db}", file=sys.stderr)
+        return 1
+    conn = sstore.connect(args.db)
+    try:
+        spine = sstore.fetch_spine_source(conn)
+        if spine is None:
+            print("لا عمود فقري في هذه القاعدة", file=sys.stderr)
+            return 1
+        md = build_unified_markdown(conn, spine[0], spine[1])
+    finally:
+        conn.close()
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(md, encoding="utf-8")
+    print(f"الفصل الموحد (معتمداً قرارات المراجعين) → {out}")
+    return 0
+
+
 def _cmd_export(args) -> int:
     from .storage import connect
     from .integration import export_csv, export_tbx, export_tmx, export_xliff, export_xlsx
@@ -238,6 +272,18 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("synthesize-demo", help="دمج ثلاثي وهمي رسمي (MILLER+ROCKWOOD+APLEY)")
     sp.add_argument("--out", default="out/synth_demo")
     sp.set_defaults(func=_cmd_synthesize_demo)
+
+    sp = sub.add_parser("review",
+                        help="واجهة المراجعة البشرية المحلية لحسم التعارضات (127.0.0.1 فقط)")
+    sp.add_argument("--db", default="out/synthesis/synthesis.db")
+    sp.add_argument("--port", type=int, default=8000)
+    sp.set_defaults(func=_cmd_review)
+
+    sp = sub.add_parser("review-export",
+                        help="أعد توليد الفصل الموحد معتمداً قرارات المراجعين المحسومة")
+    sp.add_argument("--db", default="out/synthesis/synthesis.db")
+    sp.add_argument("--out", default="out/synthesis/unified_chapter.md")
+    sp.set_defaults(func=_cmd_review_export)
 
     sp = sub.add_parser("export", help="تصدير: tmx,tbx,xliff,csv,xlsx")
     sp.add_argument("--knowledge-db", default=DEFAULTS.storage.knowledge_db)
