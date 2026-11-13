@@ -35,13 +35,36 @@ def _cmd_init_db(args) -> int:
 
 
 def _cmd_align(args) -> int:
-    from .ingestion import blocks_from_text
+    from dataclasses import replace
+
+    from .alignment.lexicon import BilingualLexicon, set_default_lexicon
+    from .config import DEFAULTS
+    from .ingestion import blocks_from_jsonl, blocks_from_text
     from .pipeline import run_pipeline
 
-    src_doc = blocks_from_text(Path(args.src).read_text(encoding="utf-8"), args.book_code, args.chapter, "en")
-    tgt_doc = blocks_from_text(Path(args.tgt).read_text(encoding="utf-8"), args.book_code, args.chapter, "ar")
-    summary = run_pipeline(src_doc, tgt_doc, args.knowledge_db, args.corrections_db)
+    if args.lexicon:
+        # مسرد المستخدم يصبح أساس المطابقة الثنائية في هذه الجلسة
+        set_default_lexicon(BilingualLexicon.from_csv(args.lexicon))
+
+    settings = replace(
+        DEFAULTS,
+        terminology=replace(DEFAULTS.terminology, syrian_lexicon_csv=args.syrian_lexicon),
+        local_onnx_model_dir=args.model_dir,
+    )
+    loader = blocks_from_jsonl if args.format == "jsonl" else blocks_from_text
+    src_doc = loader(Path(args.src).read_text(encoding="utf-8"), args.book_code, args.chapter, "en")
+    tgt_doc = loader(Path(args.tgt).read_text(encoding="utf-8"), args.book_code, args.chapter, "ar")
+    summary = run_pipeline(src_doc, tgt_doc, args.knowledge_db, args.corrections_db, settings)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _cmd_ingest_pdf(args) -> int:
+    from .ingestion.pdf_extract import export_blocks_jsonl, extract_pdf_blocks
+
+    doc = extract_pdf_blocks(args.pdf, args.book_code, args.chapter, args.lang)
+    count = export_blocks_jsonl(doc, args.out)
+    print(f"{count} كتلة → {args.out}")
     return 0
 
 
@@ -139,14 +162,27 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--corrections-db", default=DEFAULTS.storage.corrections_db)
     sp.set_defaults(func=_cmd_init_db)
 
-    sp = sub.add_parser("align", help="محاذاة ملفين نصيين (فقرات مفصولة بسطر فارغ)")
+    sp = sub.add_parser("align", help="محاذاة ملفين (نص خام أو JSONL من ingest-pdf)")
     sp.add_argument("--src", required=True)
     sp.add_argument("--tgt", required=True)
     sp.add_argument("--book-code", required=True)
     sp.add_argument("--chapter", required=True, help="مثال: CH04")
+    sp.add_argument("--format", choices=["text", "jsonl"], default="text",
+                    help="text: فقرات مفصولة بسطر فارغ | jsonl: كتل من ingest-pdf")
+    sp.add_argument("--lexicon", default=None, help="مسرد ثنائي CSV (en,ar) يصبح أساس المطابقة")
+    sp.add_argument("--syrian-lexicon", default=None, help="CSV بعمود واحد: مصطلحات سورية معتمدة إضافية")
+    sp.add_argument("--model-dir", default=None, help="مجلد نموذج ONNX محلي (model.onnx + tokenizer.json)")
     sp.add_argument("--knowledge-db", default=DEFAULTS.storage.knowledge_db)
     sp.add_argument("--corrections-db", default=DEFAULTS.storage.corrections_db)
     sp.set_defaults(func=_cmd_align)
+
+    sp = sub.add_parser("ingest-pdf", help="استخرج كتلاً JSONL من PDF محلي (يتطلب PyMuPDF: pip install -e '.[pdf]')")
+    sp.add_argument("--pdf", required=True)
+    sp.add_argument("--book-code", required=True)
+    sp.add_argument("--chapter", required=True, help="مثال: CH04")
+    sp.add_argument("--lang", choices=["en", "ar"], required=True)
+    sp.add_argument("--out", required=True, help="ملف JSONL الناتج (لأمر align --format jsonl)")
+    sp.set_defaults(func=_cmd_ingest_pdf)
 
     sp = sub.add_parser("export", help="تصدير: tmx,tbx,xliff,csv,xlsx")
     sp.add_argument("--knowledge-db", default=DEFAULTS.storage.knowledge_db)

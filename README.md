@@ -89,6 +89,25 @@ orthok set-status --knowledge-db out/pilot/knowledge.db --entity alignment --id 
 orthok corrections --corrections-db out/pilot/corrections.db   # اعرض قواعد التصحيح الدائمة
 ```
 
+## التشغيل على كتاب حقيقي (PDF → محاذاة → تصدير)
+
+```bash
+# 1) استخراج كتل واعية للتخطيط (يتطلب: pip install -e ".[pdf]")
+orthok ingest-pdf --pdf ch04_en.pdf --book-code ORTHO101 --chapter CH04 --lang en --out en_blocks.jsonl
+orthok ingest-pdf --pdf ch04_ar.pdf --book-code ORTHO101 --chapter CH04 --lang ar --out ar_blocks.jsonl
+
+# 2) محاذاة بمسردك الخاص + مسرد سوري معتمد + نموذج ONNX محلي (كلها اختيارية)
+orthok align --src en_blocks.jsonl --tgt ar_blocks.jsonl --book-code ORTHO101 --chapter CH04 \
+    --format jsonl --lexicon my_glossary.csv --syrian-lexicon syrian_terms.csv \
+    --model-dir models/bge-m3-onnx --knowledge-db out/book.db --corrections-db out/corrections.db
+```
+
+قواعد التصدير الصارمة: سجلات `BLOCKED` لا تخرج إلى TMX/TBX نهائياً، و`UNALIGNED` لا يدخل الذاكرة الترجمية أبداً، والجداول/التعليقات تيارات منفصلة عن المتن، ومصطلح `PROVEN` لا تنزّله قاعدة تصحيح آلية.
+
+## سجل الإصلاحات (v0.1.1 — مراجعة خارجية سطراً بسطر)
+
+منع تصدير BLOCKED (TMX/TBX) · حماية مصطلحات PROVEN من قواعد التصحيح · ذاكرة أزواج للمحاذاة + استخراج مصطلحات بلا O(N²) · عزل caption/table_cell عن تيار المحاذاة · إلغاء أرقام الصفحات المزيفة في النص الخام · ربط ONNX بـ pipeline (تشفير دفعي، pooling تلقائي 2D/3D، فشل صريح عند مجلد نموذج معطوب) · أمر `ingest-pdf` بخيارات `--lexicon/--syrian-lexicon/--model-dir/--format jsonl` · تصحيح لغوي للبذرة (قرحات، الالتحام، خثار، جبيرة) وتجريد اللواحق الضميرية (ترويته ↔ ترويه).
+
 ## ربط مساردك الحالية
 
 ```python

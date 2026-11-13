@@ -80,10 +80,6 @@ def _score(candidate: str, count: int) -> float:
     return score
 
 
-def _contains_phrase(text: str, phrase: str) -> bool:
-    return f" {phrase.lower()} " in f" {text.lower()} "
-
-
 def _ar_variants(text: str, allowed: set[str], lo: int = 1, hi: int = 2) -> Counter:
     """مرشحات عربية موثوقة فقط (أحاديات + ثنائيات): يُقبل n-gram إن احتوى
     رمزاً مرسوماً في القاموس البذري لمصطلح المصدر — لا روابط بلا دليل معجمي."""
@@ -141,11 +137,16 @@ def _minimal_spans(counter: Counter, allowed: set[str], cap: int = 3) -> Counter
 
 
 def extract_terms(aligned_pairs: list[dict], min_count: int = 1, top_k: int | None = None) -> list[TermCandidate]:
-    """استخرج مرشحات ثنائية من سجلات المحاذاة (المحاذى فقط — UNALIGNED مستبعد)."""
+    """استخرج مرشحات ثنائية من سجلات المحاذاة (المحاذى فقط — UNALIGNED مستبعد).
+
+    أداء O(total_gram_instances): المرشحات تُشتق من جملة كل زوج نفسها في
+    ممر واحد — لا مسح شامل لكل ``counts`` عند كل زوج (كان O(N²) ويجمّد على
+    كتاب كامل)، ولا حاجة لفحص الوجود لاحقاً لأن الاشتقاق من النص نفسه.
+    """
     counts: Counter = Counter()
     occurrences: defaultdict[str, list[int]] = defaultdict(list)
-    src_lookup: dict[int, str] = {}
     ar_counter: defaultdict[str, Counter] = defaultdict(Counter)
+    seed_cache: dict[str, set[str]] = {}
 
     for pair in aligned_pairs:
         if pair["align_type"].startswith("UNALIGNED"):
@@ -153,19 +154,20 @@ def extract_terms(aligned_pairs: list[dict], min_count: int = 1, top_k: int | No
         aid = pair["alignment_id"]
         src_join = " ".join(s["text"] for s in pair["src"])
         tgt_join = " ".join(t["text"] for t in pair["tgt"])
-        src_lookup[aid] = src_join
         for gram, c in extract_en_candidates([src_join]).items():
             counts[gram] += c
             occurrences[gram].append(aid)
-        for gram in counts:
-            if _contains_phrase(src_join, gram):
+            allowed = seed_cache.get(gram)
+            if allowed is None:
                 allowed = _seed_tokens_for(gram)
+                seed_cache[gram] = allowed
+            if allowed:
                 ar_counter[gram].update(_ar_variants(tgt_join, allowed))
 
     candidates = [
         TermCandidate(
             en_term=g, en_norm=g.lower(), count=c,
-            ar_variants=_minimal_spans(ar_counter.get(g, Counter()), _seed_tokens_for(g)),
+            ar_variants=_minimal_spans(ar_counter.get(g, Counter()), seed_cache[g]),
             example_alignments=occurrences.get(g, [])[:10],
         )
         for g, c in counts.items()

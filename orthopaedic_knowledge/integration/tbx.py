@@ -1,4 +1,8 @@
-"""تصدير TBX-Basic (ISO 30042) — تبادل المسرد المفهومي بين الأدوات."""
+"""تصدير TBX-Basic (ISO 30042) — تبادل المسرد المفهومي بين الأدوات.
+
+سياسة التصدير (docs/WORKFLOW.md): المفاهيم **BLOCKED لا تُصدَّر نهائياً**
+حتى حسم المراجع؛ UNPROVEN تُصدَّر مع admin conceptStatus صريح.
+"""
 
 from __future__ import annotations
 
@@ -6,20 +10,24 @@ import sqlite3
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+from .. import __version__
+
 _HEADER = (
     '<?xml version="1.0" encoding="UTF-8"?>\n'
     '<tbx type="TBX-Basic" style="dca" xml:lang="en" xmlns="urn:iso:std:iso:30042:ed-2">\n'
     '  <tbxHeader><fileDesc>\n'
     '    <titleStmt><title>Orthopaedic Concept-Oriented Terminology</title></titleStmt>\n'
-    '    <sourceDesc><p>orthopaedic-knowledge 0.1.0 (local)</p></sourceDesc>\n'
+    f'    <sourceDesc><p>orthopaedic-knowledge {__version__} (local)</p></sourceDesc>\n'
     '  </fileDesc></tbxHeader>\n'
     '  <text>\n    <body>\n'
 )
 
 
-def load_concepts(conn: sqlite3.Connection) -> list[dict]:
+def load_concepts(conn: sqlite3.Connection, include_blocked: bool = False) -> list[dict]:
+    """اجلب المفاهيم؛ BLOCKED مستبعدة افتراضياً — سياسة التصدير لا اختياراً."""
     out = []
-    for crow in conn.execute("SELECT * FROM concepts ORDER BY concept_id"):
+    sql = "SELECT * FROM concepts" + ("" if include_blocked else " WHERE status != 'BLOCKED'") + " ORDER BY concept_id"
+    for crow in conn.execute(sql):
         terms = [dict(trow) for trow in conn.execute(
             "SELECT * FROM terms WHERE concept_id=? ORDER BY role DESC, term_id",
             (crow["concept_id"],),

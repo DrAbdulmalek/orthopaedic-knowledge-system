@@ -10,7 +10,7 @@ import sqlite3
 from pathlib import Path
 
 from . import __version__
-from .alignment import align, flag_issues, make_sim_fn, normalize_arabic
+from .alignment import align, build_embedder, flag_issues, make_sim_fn, normalize_arabic
 from .alignment.segmenter import segment_block
 from .alignment.similarity import tokenize
 from .config import Settings, DEFAULTS
@@ -19,16 +19,23 @@ from .ids import make_sentence_id, parse_sentence_id
 from .ingestion import ChapterDocument
 from .storage import CorrectionsStore, add_alignment, add_document, add_flag, add_segment, connect
 from .terminology import extract_terms, store_all
-from .qa import detect_term_conflicts
+from .terminology.syrian_preference import load_syrian_lexicon_csv
+from .qa import bidirectional_mismatch, detect_term_conflicts
 
 
 def _store_doc_sentences(
     conn: sqlite3.Connection, doc: ChapterDocument, doc_id: int
-) -> tuple[list[str], list[str], list[str]]:
-    """خزّن جمل المستند بمعرفات provenance؛ الكتل التالفة → BLOCKED (فشل آمن)."""
+) -> tuple[list[str], list[str], list[str], int]:
+    """خزّن جمل المستند بمعرفات provenance؛ الكتل التالفة → BLOCKED (فشل آمن).
+
+    عزل التيارات إلزامي (docs/STYLE_GUIDE_AR.md): المتن فقط (kind='body')
+    يدخل تيار المحاذاة؛ الجداول والتعليقات والحواشي تُخزَّن segments كاملة
+    بمعرفاتها لكنها لا تُحاذى مع المتن.
+    """
     ids: list[str] = []
     texts: list[str] = []
     blocked: list[str] = []
+    nonbody = 0
     sent_no = 0
     valid_blocks, rejected = doc.valid_blocks()
     for exc in rejected:
@@ -48,9 +55,12 @@ def _store_doc_sentences(
                     para_index=block.page, sent_index=sent_no,
                     kind=block.kind, section_path=block.section_path,
                 )
-                ids.append(sid)
-                texts.append(s)
-    return ids, texts, blocked
+                if block.kind == "body":
+                    ids.append(sid)
+                    texts.append(s)
+                else:
+                    nonbody += 1
+    return ids, texts, blocked, nonbody
 
 
 def run_pipeline(
@@ -60,7 +70,13 @@ def run_pipeline(
     corrections_db: str | Path,
     settings: Settings = DEFAULTS,
 ) -> dict:
-    """شغّل الخط كاملاً وأعد ملخصاً قابلاً للطباعة."""
+    """شغّل الخط كاملاً وأعد ملخصاً قابلاً للطباعة.
+
+    التضمين الدلالي: إن عُيّن ``settings.local_onnx_model_dir`` فيُحمَّل
+    النموذج المحلي وتُشفَّر كل الجمل **دفعياً مرة واحدة** قبل الـ DP؛
+    فشل التحميل مع مجلد محدد صراحةً = استثناء يوقف الخط (Fail-Closed،
+    لا سقوط صامت). غياب المجلد = الوضع المعجمي بالكامل.
+    """
     if src_doc.lang != "en" or tgt_doc.lang != "ar":
         raise ValueError("المصدر يجب أن يكون en والهدف ar — الرفض قبل أي معالجة")
     corrections = CorrectionsStore(corrections_db)
@@ -68,10 +84,14 @@ def run_pipeline(
     try:
         doc_src = add_document(conn, src_doc.book_code, "en", src_doc.chapter)
         doc_tgt = add_document(conn, tgt_doc.book_code, "ar", tgt_doc.chapter)
-        src_ids, src_texts, blocked_src = _store_doc_sentences(conn, src_doc, doc_src)
-        tgt_ids, tgt_texts, blocked_tgt = _store_doc_sentences(conn, tgt_doc, doc_tgt)
+        src_ids, src_texts, blocked_src, nonbody_src = _store_doc_sentences(conn, src_doc, doc_src)
+        tgt_ids, tgt_texts, blocked_tgt, nonbody_tgt = _store_doc_sentences(conn, tgt_doc, doc_tgt)
 
-        sim_fn = make_sim_fn(None, settings)
+        embedder = build_embedder(settings.local_onnx_model_dir)
+        if embedder is not None:
+            embedder.encode_all(src_texts)   # تشفير دفعي واحد لكل جانب
+            embedder.encode_all(tgt_texts)
+        sim_fn = make_sim_fn(embedder, settings)
         result = align(
             src_texts, tgt_texts, sim_fn,
             max_join=settings.alignment.max_join,
@@ -103,23 +123,29 @@ def run_pipeline(
             min_count=settings.terminology.min_term_count,
             top_k=settings.terminology.top_k,
         )
+        syrian_lex = None
+        if settings.terminology.syrian_lexicon_csv:
+            syrian_lex = load_syrian_lexicon_csv(settings.terminology.syrian_lexicon_csv)
         concept_ids = store_all(
             conn, corrections, candidates,
-            specialty="Orthopaedics", syrian_lexicon=None,
+            specialty="Orthopaedics", syrian_lexicon=syrian_lex,
         )
         conflicts = detect_term_conflicts(conn)
+        bidir = bidirectional_mismatch(conn)
 
         summary = {
             "version": __version__,
             "src_sentences": len(src_texts),
             "tgt_sentences": len(tgt_texts),
             "blocked_blocks": len(blocked_src) + len(blocked_tgt),
+            "non_body_excluded": nonbody_src + nonbody_tgt,
             "alignments": len(result.alignments),
             "type_counts": result.type_counts,
             "flags": len(flags),
             "term_candidates": len(candidates),
             "concepts": len(concept_ids),
             "conflicts_blocked": len(conflicts),
+            "bidirectional_mismatch": len(bidir),
         }
         conn.commit()
         return summary

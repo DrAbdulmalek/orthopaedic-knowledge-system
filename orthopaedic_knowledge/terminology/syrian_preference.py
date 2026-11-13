@@ -19,7 +19,7 @@ from ..alignment.normalizer import normalize_arabic
 SYRIAN_SEED: set[str] = {
     # (بعد التطبيع) مصطلحات الاستخدام الطبي السوري المعتاد
     "جبس",            # plaster cast
-    "غبره",           # splint
+    "جبيره",          # splint
     "غرفه العمليات",  # operating room
     "صوره شعاعيه",    # X-ray film
     "اشعه",           # X-ray
@@ -34,6 +34,21 @@ SYRIAN_SEED: set[str] = {
     "كدمه",           # bruise
     "التواء",         # sprain
 }
+
+
+def load_syrian_lexicon_csv(path: str) -> set[str]:
+    """حمّل قائمة مصطلحات سورية معتمدة من CSV محلي (عمود واحد، UTF-8،
+    سطور # تعليقات). يعيد مجموعة مطبَّعة جاهزة للتمرير إلى choose_preferred
+    وstore_all — مسار توسيع المحمي دون تعديل الكود."""
+    import csv
+    from pathlib import Path
+
+    lexicon: set[str] = set()
+    with Path(path).open(encoding="utf-8-sig") as fh:
+        for row in csv.reader(fh):
+            if row and row[0].strip() and not row[0].startswith("#"):
+                lexicon.add(normalize_arabic(row[0]))
+    return lexicon
 
 
 @dataclass(frozen=True)

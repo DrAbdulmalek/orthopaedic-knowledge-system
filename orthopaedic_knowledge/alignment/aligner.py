@@ -67,15 +67,24 @@ def align(
         [None] * (m + 1) for _ in range(n + 1)
     ]
     dp[0][0] = 0.0
+    # ذاكرة أزواج: كل زوج (i,j) يُحسب مرة واحدة بحد أقصى — الـ DP يجربه في
+    # عدة دمجات (1:1, 1:2, 2:1, ...) والتتبع العكسي يعيده؛ بلا ذاكرة تتضاعف
+    # الاستدعاءات (وأغلبها تشابه معجمي/ONNX مكلف).
+    pair_cache: dict[tuple[int, int], tuple[float, dict] | None] = {}
 
     def _pair_score(a: int, b: int) -> tuple[float, dict] | None:
+        key = (a, b)
+        if key in pair_cache:
+            return pair_cache[key]
+        result: tuple[float, dict] | None
         try:
             score, breakdown = sim_fn(src[a], tgt[b])
         except Exception:  # noqa: BLE001 — فشل آمن: زوج لا يُقاس لا يُدمج
-            return None
-        if score is None or score != score:  # None / NaN
-            return None
-        return float(score), breakdown
+            result = None
+        else:
+            result = None if score is None or score != score else (float(score), breakdown)
+        pair_cache[key] = result
+        return result
 
     for i in range(n + 1):
         for j in range(m + 1):

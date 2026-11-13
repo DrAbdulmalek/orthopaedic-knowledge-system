@@ -13,4 +13,4 @@ translator's machine (Manjaro); no component talks to the network.
 6. حللة تصحيح مستمرة — corrections.db يُطبَّق آلياً على المعالجات القادمة.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"

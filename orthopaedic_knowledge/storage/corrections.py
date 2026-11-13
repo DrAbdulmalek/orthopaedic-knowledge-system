@@ -83,11 +83,13 @@ class CorrectionsStore:
             self._log(rule["correction_id"], "term", en_norm, "SKIPPED", "لا مفهوم بعد")
             return 0
         concept_id = rows[0]["concept_id"]
-        # ترقية المصطلح المصحح (أو إدراجه إن غاب) وتنزيل البقية إلى synonyms
+        # ترقية المصطلح المصحح (أو إدراجه إن غاب) وتنزيل البقية إلى synonyms.
+        # حماية PROVEN: المصطلح الذي ثبّته مراجع بشرياً لا تنزّله قاعدة آلية —
+        # التصحيح يضيف تفضيله الجديد دون المساس بالحالة المحمية.
         knowledge_conn.execute(
             """UPDATE terms SET role='synonym', dialect_weight=0.0,
                    context_note='demoted by correction #' || ?
-               WHERE concept_id=? AND lang='ar'""",
+               WHERE concept_id=? AND lang='ar' AND status != 'PROVEN'""",
             (rule["correction_id"], concept_id),
         )
         knowledge_conn.execute(

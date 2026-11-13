@@ -23,6 +23,8 @@ class TerminologySettings:
     top_k: int = 40
     syrian_weight: float = 1.0    # ترجيح المصطلح السوري المعتمد
     frequency_weight: float = 0.5
+    # مسرد سوري معتمد إضافي (CSV محلي بعمود واحد) — يوسع SYRIAN_SEED
+    syrian_lexicon_csv: str | None = None
 
 
 @dataclass(frozen=True)

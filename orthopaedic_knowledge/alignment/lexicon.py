@@ -29,11 +29,11 @@ BUILTIN_SEED: dict[str, str] = {
     "preferred": "يفضل|مفضل", "preserve": "يحافظ|حفاظ", "mobility": "حركه",
     "osteosynthesis": "تثبيت", "cannulated": "انبوبيه", "screws": "براغي",
     "native": "اصلي", "younger": "اصغر", "avascular": "لاوعائي",
-    "necrosis": "نخر", "nonunion": "عدم تحالف|تحالف", "feared": "اخطر",
+    "necrosis": "نخر", "nonunion": "عدم التحام|التحام", "feared": "اخطر",
     "complications": "مضاعفات", "early": "مبكر", "mobilization": "تحريك",
     "reduces": "يقلل", "risk": "خطر", "pneumonia": "التهاب رئوي|رئوي",
-    "pressure": "قرصات", "ulcers": "قرصات|قرحه", "deep": "عميق",
-    "vein": "وريد", "thrombosis": "انصتاب", "magnetic": "مغناطيسي",
+    "pressure": "فراش", "ulcers": "قرحات|قرحه", "deep": "عميق",
+    "vein": "وريد", "thrombosis": "خثار", "magnetic": "مغناطيسي",
     "resonance": "رنين", "imaging": "تصوير", "detects": "يكتشف",
     "occult": "خفيه", "hours": "ساعات", "disruption": "تضرر",
     "retinacular": "شبكيه", "vessels": "اوعيه", "receives": "يتلقى",
@@ -41,19 +41,32 @@ BUILTIN_SEED: dict[str, str] = {
     "primarily": "رئيسيه", "limb": "طرف", "immobilized": "تثبيت",
     "plaster": "جبس", "cast": "جبس|جبيره", "removed": "ازيل|ازاله",
     "six": "سته", "weeks": "اسابيع|اسبوع", "bone": "عظم",
+    "splint": "جبيره",
 }
 
 
+# السوابق واللواحق: (الجزء، أقصر طول إجمالي يُقبل تجريده) — للمطابقة فقط؛
+# النص المعروض يحفظ رسمه الكامل. اللواحق الضميرية تصل «ترويته» بذرية «ترويه».
+_PREFIXES: tuple[tuple[str, int], ...] = (("ال", 4), ("وال", 5), ("و", 3), ("ب", 3), ("ل", 3))
+_SUFFIXES: tuple[tuple[str, int], ...] = (("ها", 4), ("هما", 5), ("هم", 4), ("هن", 4), ("كم", 4), ("ات", 4), ("ه", 4))
+
+
 def _ar_variants(tok: str) -> set[str]:
-    """سطوح رمز عربي مطبَّع: تجريد السوابق الشائعة (ال، و، ب، ل)."""
+    """سطوح رمز عربي مطبَّع: تجريد السوابق (ال، و، ب، ل، وال) **واللواحق
+    الضميرية** (ها، هما، هم، هن، كم، ات، ه). قاعدة الالتباس: هاة بعد ياء
+    قد تكون تاءً مربوطة أصلاً (ترويه ← تروية) فيُضاف الشكل بـ«ت»."""
     out = {tok}
-    if len(tok) > 4 and tok.startswith("ال"):
-        out.add(tok[2:])
-    for prefix in ("و", "ب", "ل"):
-        if len(tok) > 3 and tok.startswith(prefix):
-            out.add(tok[1:])
-    if len(tok) > 5 and tok.startswith("وال"):
-        out.add(tok[3:])
+    for base in tuple(out):
+        for pref, min_len in _PREFIXES:
+            if len(base) >= min_len + 1 and base.startswith(pref):
+                out.add(base[len(pref):])
+    for base in tuple(out):
+        for suf, min_len in _SUFFIXES:
+            if len(base) >= min_len + len(suf) and base.endswith(suf):
+                out.add(base[: -len(suf)])
+    for base in tuple(out):
+        if len(base) >= 5 and base.endswith("يه"):
+            out.add(base[:-1] + "ت")   # ترويه ↔ ترويت — المطابقة لا تراهن على الرسم
     return out
 
 
@@ -117,9 +130,11 @@ class BilingualLexicon:
         return hits / len(en_toks)
 
     def _matches(self, en_tok: str, ar_set: set[str]) -> bool:
+        # جانبا المقارنة يُجرَّدان لواحقهما: بذرة «ترويه» تصير {ترويه، ترويت}
+        # فيقابل النص «ترويته» ({ترويته، ترويت}) — اللواحق الضميرية لا تعطل المطابقة.
         for stem in _en_stems(en_tok):
             for group in self.groups.get(stem, ()):
-                if all(g in ar_set for g in group):
+                if all(_ar_variants(g) & ar_set for g in group):
                     return True
         return False
 

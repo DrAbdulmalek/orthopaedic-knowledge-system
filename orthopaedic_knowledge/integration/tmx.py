@@ -1,7 +1,9 @@
 """تصدير TMX 1.4b — للذاكرة الترجمية في أدوات CAT.
 
-قواعد ثابتة:
+قواعد ثابتة (docs/WORKFLOW.md):
 * وحدات UNALIGNED لا تُصدَّر أبداً (لا ذاكرة من محاذاة مشكوك فيها).
+* السجلات **BLOCKED لا تُصدَّر نهائياً** حتى حسم المراجع — الالتزام بالسياسة
+  ليس اختيارياً في طبقة التصدير.
 * تصدير UNPROVEN يحتاج min_confidence صريحاً؛ خصائص المشروع (الثقة/الحالة)
   تُحفظ داخل <prop> حتى لا تضيع عند التبادل.
 """
@@ -12,23 +14,28 @@ import sqlite3
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+from .. import __version__
 from ..storage.db import fetch_pairs
 from ..ids import parse_sentence_id
 
-_HEADER = (
-    '<?xml version="1.0" encoding="UTF-8"?>\n'
-    '<tmx version="1.4">\n'
-    '  <header creationtool="orthopaedic-knowledge" creationtoolversion="0.1.0"'
-    ' segtype="sentence" o-tmf="orthok-sqlite" adminlang="en"'
-    ' srclang="en" datatype="plaintext"/>\n'
-    '  <body>\n'
-)
+
+def _header() -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<tmx version="1.4">\n'
+        f'  <header creationtool="orthopaedic-knowledge" creationtoolversion="{__version__}"'
+        ' segtype="sentence" o-tmf="orthok-sqlite" adminlang="en"'
+        ' srclang="en" datatype="plaintext"/>\n'
+        '  <body>\n'
+    )
 
 
 def build_tmx(pairs: list[dict], min_confidence: float = 0.0) -> str:
-    parts = [_HEADER]
+    parts = [_header()]
     for pair in pairs:
         if pair["align_type"] == "UNALIGNED":
+            continue
+        if pair["status"] == "BLOCKED":  # سياسة WORKFLOW: ممنوع التصدير قبل الحسم
             continue
         if float(pair["confidence"]) < min_confidence:
             continue

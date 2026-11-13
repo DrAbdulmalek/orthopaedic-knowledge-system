@@ -47,19 +47,28 @@ def blocks_from_jsonl(path: str | Path, book_code: str, chapter: str, lang: str)
 
 
 def blocks_from_text(text: str, book_code: str, chapter: str, lang: str, first_page: int = 1) -> ChapterDocument:
-    """حوّل نصاً خاماً (UTF-8) إلى فقرات → كتل body/caption."""
+    """حوّل نصاً خاماً (UTF-8) إلى فقرات → كتل body/caption/table_cell.
+
+    **Provenance صادق**: النص الخام لا يحمل تخطيطاً؛ كل الكتل تُنسب إلى
+    الصفحة المعلنة ``first_page`` — لا اختراع أرقام صفحات متزايدة كانت
+    تفسد معرفات provenance (P001..P100) على النصوص الحقيقية.
+    الأسطر ذات التبويبات تُوسم table_cell (تيار منفصل عن المتن).
+    """
     doc = ChapterDocument(book_code=book_code, chapter=chapter, lang=lang)
-    page = first_page
     for para in re.split(r"\n\s*\n", text):
         for line in (s.strip() for s in para.splitlines()):
             if not line:
                 continue
-            kind = "caption" if _CAPTION_RE.match(line) else "body"
-            doc.blocks.append(TextBlock(page=page, text=line, kind=kind))
-        page += 1  # فقرة مميزة بفارغ سطر → افتراض صفحة جديدة في النموذج الوهمي
+            if "\t" in line:
+                kind = "table_cell"
+            elif _CAPTION_RE.match(line):
+                kind = "caption"
+            else:
+                kind = "body"
+            doc.blocks.append(TextBlock(page=first_page, text=line, kind=kind))
     return doc
 
 
 def guess_table_cells(text: str) -> bool:
-    """إشارة تقريبية أن السطر جزء من جدول (تبويبات/أعمدة) — للوسم فقط."""
+    """إشارة أن السطر جزء من جدول (تبويبات أعمدة) — تستخدم في blocks_from_text."""
     return bool(_TABLE_HINT_RE.search(text))
