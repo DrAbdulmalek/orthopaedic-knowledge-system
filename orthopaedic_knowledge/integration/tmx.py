@@ -39,12 +39,15 @@ def build_tmx(pairs: list[dict], min_confidence: float = 0.0) -> str:
         tuid = pair["src"][0]["sentence_id"] if pair["src"] else pair["tgt"][0]["sentence_id"]
         # Provenance داخل TMX: الشفرة الوتدية من معرف الجملة
         prov = parse_sentence_id(tuid)
-        parts.append(f'    <tu tuid="{escape(tuid)}" srclang="en">\n')
+        parts.append('    <tu tuid="%s" srclang="en">\n' % escape(tuid))
         if prov:
-            parts.append(f'      <prop type="x-provenance">{escape(f"{prov['book']}/{prov['chapter']}/p{prov['page']}")}</prop>\n')
-        parts.append(f'      <prop type="x-alignment-id">A-{pair["alignment_id"]}</prop>\n')
-        parts.append(f'      <prop type="x-confidence">{pair["confidence"]:.4f}</prop>\n')
-        parts.append(f'      <prop type="x-status">{pair["status"]}</prop>\n')
+            prov_str = "{}/{}".format(prov["book"], prov["chapter"])
+            parts.append(
+                '      <prop type="x-provenance">%s</prop>\n' % escape(prov_str + "/p" + str(prov["page"]))
+            )
+        parts.append('      <prop type="x-alignment-id">A-%s</prop>\n' % pair["alignment_id"])
+        parts.append('      <prop type="x-confidence">%.4f</prop>\n' % pair["confidence"])
+        parts.append('      <prop type="x-status">%s</prop>\n' % pair["status"])
         parts.append(f'      <tuv xml:lang="en"><seg>{escape(src_text)}</seg></tuv>\n')
         parts.append(f'      <tuv xml:lang="ar"><seg>{escape(tgt_text)}</seg></tuv>\n')
         parts.append("    </tu>\n")
