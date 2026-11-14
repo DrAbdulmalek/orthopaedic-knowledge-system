@@ -14,6 +14,25 @@ from .models import SynthesisResult
 from .store import fetch_conflicts, fetch_deltas, fetch_links, fetch_resolutions, fetch_units
 
 
+def _numbers_note(detail_json: str | None) -> str | None:
+    """صياغة خلاف الأرقام بالعربية — الرقم المتضارب يُذكر صراحة في القوس."""
+    try:
+        detail = json.loads(detail_json) if detail_json else {}
+    except json.JSONDecodeError:
+        return None
+    nums = [str(n) for n in (detail or {}).get("numbers", []) if str(n).strip()]
+    if not nums:
+        return None
+    if len(nums) == 1:
+        return f"ذُكر الرقم {nums[0]}"
+    return f"ذُكرت الأرقام {' و'.join(nums)}"
+
+
+def _md_cell(text: str) -> str:
+    """خلية جدول Markdown: تهريب الأنابيب حتى لا تكسر الصف."""
+    return html.escape(text).replace("|", "\\|")
+
+
 def build_unified_markdown(conn, spine_book: str, chapter: str) -> str:
     parts = [f"# الفصل الامتحاني الموحد — {chapter}\n",
              f"**العمود الفقري:** {spine_book} — الكتب الأخرى مدموجة تحته بمعرفات إثبات.\n"]
@@ -28,21 +47,49 @@ def build_unified_markdown(conn, spine_book: str, chapter: str) -> str:
         delta_by_anchor.setdefault(d["anchor_unit"], []).append(d)
     conflicts = fetch_conflicts(conn)
     resolutions = fetch_resolutions(conn)
+    conflict_by_unit: dict[str, list[dict]] = {}
+    for c in conflicts:
+        conflict_by_unit.setdefault(c["spine_unit_id"], []).append(c)
 
     for u in fetch_units(conn, spine_book):
         if u["kind"] != "body":
             continue
         parts.append(f"\n## {u['unit_id']} (ص.{u['page_first']})\n")
         res = resolutions.get(u["unit_id"])
+        body_text = u["text"]
         if res is not None and res.get("choice") in {"other", "custom"}:
             # قرار المراجع المعتمد يحل محل نص العمود الفقري — الإثبات الأصلي محفوظ أعلاه
-            parts.append(res["text"] + "\n")
-            parts.append(
-                f"> ✅ نص معتمد بشرياً [PROVEN] — قرار «{res['choice']}» "
-                f"بواسطة {res['reviewer']} على التعارض #{res['conflict_id']}.\n"
-            )
-        else:
-            parts.append(u["text"] + "\n")
+            body_text = res["text"]
+        # سياسة الدمج: الفكرة الأولى (العمود الفقري) تبقى، وخلاف الكتاب الآخر بين قوسين
+        for c in conflict_by_unit.get(u["unit_id"], []):
+            if res is not None and res.get("conflict_id") == c["conflict_id"]:
+                if res.get("choice") == "custom":
+                    continue  # النص المعدّل يجيب عن الخلاف بذاته
+                if res.get("choice") == "other":
+                    # اعتُمد نص الكتاب الآخر → القوس يوثّق خلاف العمود الفقري بالمقابل
+                    note = _numbers_note(c["spine_detail"]) or "ذُكر نص مختلف"
+                    body_text += f" (في {spine_book} {note})"
+                    continue
+            note = _numbers_note(c["other_detail"]) or "ذُكر نص مختلف"
+            body_text += f" (في {c['book_code']} {note})"
+        parts.append(body_text + "\n")
+        if res is not None:
+            if res.get("choice") in {"other", "custom"}:
+                parts.append(
+                    f"> ✅ نص معتمد بشرياً [PROVEN] — قرار «{res['choice']}» "
+                    f"بواسطة {res['reviewer']} على التعارض #{res['conflict_id']}.\n"
+                )
+            elif res.get("choice") == "spine":
+                parts.append(
+                    f"> ✅ تم الحسم: اعتُمد نص العمود الفقري بواسطة {res['reviewer']} "
+                    f"على التعارض #{res['conflict_id']}.\n"
+                )
+        for c in conflict_by_unit.get(u["unit_id"], []):
+            if c["status"] == "BLOCKED":
+                parts.append(
+                    f"> ⚠ [BLOCKED] حسم بشري إلزامي — الإثبات: "
+                    f"{c['spine_unit_id']} ↔ {c['other_unit_id']}.\n"
+                )
         for ln in dup_by_other.get(u["unit_id"], []):
             parts.append(f"> ✚ موثّق أيضاً في: {ln['book_code']} — تكرار منهار، لا إعادة نص.\n")
         for d in delta_by_anchor.get(u["unit_id"], []):
@@ -53,14 +100,14 @@ def build_unified_markdown(conn, spine_book: str, chapter: str) -> str:
 
     if conflicts:
         parts.append("\n## ⚠ جدول تعارضات المراجع — الحسم بشري موثق (الحالة لكل سطر)\n")
-        parts.append("| # | النوع | العمود الفقري | الكتاب الآخر | الحالة |\n|---|---|---|---|---|\n")
+        parts.append("| # | النوع | نص العمود الفقري | نص الكتاب الآخر | الحالة | الإثبات |\n")
+        parts.append("|---|---|---|---|---|---|\n")
         for c in conflicts:
             parts.append(
-                "| {i} | {t} | {sp}: {sd} | {ob}: {od} | {st} |\n".format(
+                "| {i} | {t} | {sp} | {ot} | {st} | {ev} |\n".format(
                     i=c["conflict_id"], t=c["conflict_type"],
-                    sp=c["spine_unit_id"], sd=html.escape(json.loads(c["spine_detail"]).__str__()),
-                    ob=c["book_code"], od=html.escape(json.loads(c["other_detail"]).__str__()),
-                    st=c["status"],
+                    sp=_md_cell(c["spine_text"]), ot=_md_cell(c["other_text"]),
+                    st=c["status"], ev=f"{c['spine_unit_id']} ↔ {c['other_unit_id']}",
                 )
             )
     return "\n".join(parts) + "\n"
@@ -101,12 +148,18 @@ def build_html_report(conn, result: SynthesisResult) -> str:
         )
     )
     rows = []
+    resolutions = fetch_resolutions(conn)
     for c in fetch_conflicts(conn):
+        badge = "b-dup" if c["status"] == "PROVEN" else "b-conflict"
+        reviewer = ""
+        res = resolutions.get(c["spine_unit_id"])
+        if res is not None and res.get("conflict_id") == c["conflict_id"] and res.get("reviewer"):
+            reviewer = f" — {res['reviewer']}"
         rows.append(
             f"<tr><td>{c['conflict_id']}</td><td>{html.escape(c['conflict_type'])}</td>"
             f"<td>{html.escape(c['spine_text'], 120)}</td>"
             f"<td>{html.escape(c['other_text'], 120)}</td>"
-            f"<td><span class='badge b-conflict'>{c['status']}</span></td>"
+            f"<td><span class='badge {badge}'>{c['status']}{html.escape(reviewer)}</span></td>"
             f"<td class='muted'>{c['spine_unit_id']} ↔ {c['other_unit_id']}</td></tr>"
         )
     delta_rows = []

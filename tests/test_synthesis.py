@@ -283,3 +283,74 @@ def test_cli_synthesize_jsonl_end_to_end(tmp_path):
         conn.close()
     assert spine == len(MILLER_UNITS)
     assert conflicts + deltas > 0  # النصوص المُعايَرة تنتج قرارات فعلاً
+
+
+def _synthesis_conn(tmp_path, name="synthesis.db"):
+    """قاعدة توليف MILLER+ROCKWOOD (مسار المستخدم) — تعارض أرقام واحد 6↔12."""
+    from orthopaedic_knowledge.synthesis.store import connect
+
+    spine, others = build_demo_documents()
+    db = tmp_path / name
+    run_synthesis(spine, others[:1], db)
+    return connect(db)
+
+
+def test_unified_markdown_conflict_table_and_parenthetical(tmp_path):
+    """جدول التعارضات يعرض النصين كاملين + الإثبات، والدمج يحفظ فكرة العمود
+    الفقري مع قوس يوثق رقم الكتاب الآخر، وBLOCKED يظل حسمًا بشريًا إلزاميًا."""
+    from orthopaedic_knowledge.synthesis.report import build_unified_markdown
+
+    conn = _synthesis_conn(tmp_path)
+    try:
+        md = build_unified_markdown(conn, "MILLER", "CH04")
+    finally:
+        conn.close()
+    # القوس التوثيقي بعد الفكرة الأولى مباشرة
+    assert "The limb was immobilized for 6 weeks after osteosynthesis. (في ROCKWOOD ذُكر الرقم 12)" in md
+    # BLOCKED يظل معلماً بإلزامية الحسم مع الإثبات
+    assert "⚠ [BLOCKED] حسم بشري إلزامي — الإثبات: MILLER_CH04_P113_U004 ↔ ROCKWOOD_CH04_P212_U003" in md
+    # الجدول: أعمدة النصين والإثبات + النصوص الكاملة لا تفاصيل JSON
+    assert "| # | النوع | نص العمود الفقري | نص الكتاب الآخر | الحالة | الإثبات |" in md
+    assert "| 1 | numbers | The limb was immobilized for 6 weeks after osteosynthesis." in md
+    assert "The limb was protected for 12 weeks after osteosynthesis." in md
+    assert "| MILLER_CH04_P113_U004 ↔ ROCKWOOD_CH04_P212_U003 |" in md
+
+
+def test_unified_markdown_resolved_choices(tmp_path):
+    """الحسم بثلاثة خيارات: spine يبقي الفكرة + قوس؛ other يقلب النص والقوس
+    يوثق خلاف العمود الفقري؛ custom يستبدل النص دون قوس."""
+    from orthopaedic_knowledge.synthesis.report import build_unified_markdown
+    from orthopaedic_knowledge.synthesis.store import resolve_conflict
+
+    # choice=spine — الفكرة الأولى + القوس + سطر اعتماد
+    conn = _synthesis_conn(tmp_path, "s_spine.db")
+    try:
+        resolve_conflict(conn, 1, status="PROVEN", choice="spine", reviewer="DR_TEST")
+        md = build_unified_markdown(conn, "MILLER", "CH04")
+    finally:
+        conn.close()
+    assert "The limb was immobilized for 6 weeks after osteosynthesis. (في ROCKWOOD ذُكر الرقم 12)" in md
+    assert "✅ تم الحسم: اعتُمد نص العمود الفقري بواسطة DR_TEST على التعارض #1" in md
+    assert "⚠ [BLOCKED]" not in md
+
+    # choice=other — نص الكتاب الآخر يصير أساساً والقوس يوثق رقم MILLER
+    conn = _synthesis_conn(tmp_path, "s_other.db")
+    try:
+        resolve_conflict(conn, 1, status="PROVEN", choice="other", reviewer="DR_TEST")
+        md = build_unified_markdown(conn, "MILLER", "CH04")
+    finally:
+        conn.close()
+    assert "The limb was protected for 12 weeks after osteosynthesis. (في MILLER ذُكر الرقم 6)" in md
+
+    # choice=custom — النص المعدّل يجيب عن الخلاف، لا قوس
+    conn = _synthesis_conn(tmp_path, "s_custom.db")
+    try:
+        resolve_conflict(conn, 1, status="PROVEN", choice="custom",
+                         text="Immobilization duration varies by protocol (6–12 weeks).",
+                         reviewer="DR_TEST")
+        md = build_unified_markdown(conn, "MILLER", "CH04")
+    finally:
+        conn.close()
+    assert "Immobilization duration varies by protocol (6–12 weeks)." in md
+    assert "(في ROCKWOOD" not in md
+    assert "قرار «custom»" in md

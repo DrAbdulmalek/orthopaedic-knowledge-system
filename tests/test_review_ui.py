@@ -86,7 +86,9 @@ def test_resolve_with_other_text_updates_db_and_export(demo):
     md = client.get("/api/export/unified.md").text
     assert "نص معتمد بشرياً [PROVEN]" in md and "DR_A" in md
     assert "The limb was protected for 12 weeks after osteosynthesis." in md
-    assert "immobilized for 6 weeks" not in md          # استبدال، لا إبقاء
+    # استبدال في الجسم: نص العمود الفقري لم يعد نص الوحدة، لكنه يبقى سطر تدقيق واحد في الجدول
+    assert md.count("immobilized for 6 weeks") == 1
+    assert "The limb was protected for 12 weeks after osteosynthesis. (في MILLER ذُكر الرقم 6)" in md
 
 
 def test_spine_choice_keeps_spine_text(demo):
