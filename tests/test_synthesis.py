@@ -243,3 +243,43 @@ def test_spine_unit_anchor_links_carry_scores(tmp_path):
         assert all(r["semantic"] is None for r in links)   # الوضع المعجمي الصرف
     finally:
         conn.close()
+
+
+def test_cli_synthesize_jsonl_end_to_end(tmp_path):
+    """انحدار: --format jsonl عبر الـ CLI كان يفشل بـ FileNotFoundError
+    (المحمّل يستقبل مساراً لا نصاً) — المسار الكامل يجب أن يعمل من طرف إلى طرف."""
+    from orthopaedic_knowledge.cli import main
+    from pilot.synthesis_demo import MILLER_UNITS, ROCKWOOD_UNITS, _doc
+
+    work = tmp_path / "work"
+    work.mkdir()
+    spine_doc = _doc("MILLER", MILLER_UNITS, 110)
+    other_doc = _doc("ROCKWOOD", ROCKWOOD_UNITS, 210)
+    for doc, name in ((spine_doc, "miller_ch04.jsonl"), (other_doc, "rockwood_ch04.jsonl")):
+        from orthopaedic_knowledge.ingestion.pdf_extract import export_blocks_jsonl
+
+        export_blocks_jsonl(doc, work / name)
+
+    db = tmp_path / "synthesis.db"
+    rc = main([
+        "synthesize",
+        "--spine", str(work / "miller_ch04.jsonl"),
+        "--spine-code", "MILLER",
+        "--other", str(work / "rockwood_ch04.jsonl"), "ROCKWOOD",
+        "--chapter", "CH04",
+        "--format", "jsonl",
+        "--db", str(db),
+    ])
+    assert rc == 0
+    conn = sqlite3.connect(db)
+    try:
+        spine, conflicts, deltas = conn.execute(
+            "SELECT (SELECT COUNT(*) FROM units u JOIN sources s ON u.source_id=s.source_id"
+            " WHERE s.role='spine'),"
+            " (SELECT COUNT(*) FROM conflicts),"
+            " (SELECT COUNT(*) FROM deltas)"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert spine == len(MILLER_UNITS)
+    assert conflicts + deltas > 0  # النصوص المُعايَرة تنتج قرارات فعلاً

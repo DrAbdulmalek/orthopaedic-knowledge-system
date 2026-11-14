@@ -71,9 +71,12 @@ def _cmd_ingest_pdf(args) -> int:
 def _load_en_doc(path: str, book_code: str, chapter: str, fmt: str):
     from .ingestion import blocks_from_jsonl, blocks_from_text
 
-    text = Path(path).read_text(encoding="utf-8")
-    loader = blocks_from_jsonl if fmt == "jsonl" else blocks_from_text
-    return loader(text, book_code, chapter, "en")
+    # jsonl: المحمّل يقرأ الملف بنفسه (سطور تالفة تُجمع لاحقاً كـ BLOCKED)؛
+    # text: المحتوى نص خام مفصول بأسطر فارغة — تمرير النص للمحمّل خطأ
+    # كان يجعل --format jsonl عبر الـ CLI يفشل بـ FileNotFoundError.
+    if fmt == "jsonl":
+        return blocks_from_jsonl(path, book_code, chapter, "en")
+    return blocks_from_text(Path(path).read_text(encoding="utf-8"), book_code, chapter, "en")
 
 
 def _cmd_synthesize(args) -> int:
