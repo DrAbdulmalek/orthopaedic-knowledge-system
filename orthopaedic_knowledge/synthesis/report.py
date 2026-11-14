@@ -100,16 +100,18 @@ def build_unified_markdown(conn, spine_book: str, chapter: str) -> str:
 
     if conflicts:
         parts.append("\n## ⚠ جدول تعارضات المراجع — الحسم بشري موثق (الحالة لكل سطر)\n")
-        parts.append("| # | النوع | نص العمود الفقري | نص الكتاب الآخر | الحالة | الإثبات |\n")
-        parts.append("|---|---|---|---|---|---|\n")
+        # الجدول كتلة واحدة متصلة — السطر الفارغ داخل الجدول يكسر عرضه في GFM
+        table = ["| # | النوع | نص العمود الفقري | نص الكتاب الآخر | الحالة | الإثبات |",
+                 "|---|---|---|---|---|---|"]
         for c in conflicts:
-            parts.append(
-                "| {i} | {t} | {sp} | {ot} | {st} | {ev} |\n".format(
+            table.append(
+                "| {i} | {t} | {sp} | {ot} | {st} | {ev} |".format(
                     i=c["conflict_id"], t=c["conflict_type"],
                     sp=_md_cell(c["spine_text"]), ot=_md_cell(c["other_text"]),
                     st=c["status"], ev=f"{c['spine_unit_id']} ↔ {c['other_unit_id']}",
                 )
             )
+        parts.append("\n".join(table) + "\n")
     return "\n".join(parts) + "\n"
 
 

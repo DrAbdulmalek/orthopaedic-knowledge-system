@@ -314,6 +314,8 @@ def test_unified_markdown_conflict_table_and_parenthetical(tmp_path):
     assert "| 1 | numbers | The limb was immobilized for 6 weeks after osteosynthesis." in md
     assert "The limb was protected for 12 weeks after osteosynthesis." in md
     assert "| MILLER_CH04_P113_U004 ↔ ROCKWOOD_CH04_P212_U003 |" in md
+    # استمرارية الجدول — السطر الفارغ بين صفوفه يكسر عرضه في GFM
+    assert "|---|---|---|---|---|---|\n| 1 | numbers" in md
 
 
 def test_unified_markdown_resolved_choices(tmp_path):
