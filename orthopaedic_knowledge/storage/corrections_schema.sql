@@ -6,7 +6,7 @@ PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS corrections (
     correction_id INTEGER PRIMARY KEY,
-    entity        TEXT NOT NULL CHECK (entity IN ('alignment','term','concept','segment')),
+    entity        TEXT NOT NULL CHECK (entity IN ('alignment','term','concept','segment','conflict','delta')),
     -- مفتاح المطابقة للإعادة: exact_id (المعرف حرفياً) أو norm_term (بالمصطلح المطبَّع)
     match_rule    TEXT NOT NULL DEFAULT 'exact_id'
                   CHECK (match_rule IN ('exact_id','norm_term')),

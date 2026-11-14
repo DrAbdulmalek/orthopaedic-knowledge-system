@@ -25,6 +25,38 @@ class CorrectionsStore:
             .joinpath("corrections_schema.sql").read_text(encoding="utf-8")
         )
         self.conn.commit()
+        self._ensure_entity_v2()
+
+    def _ensure_entity_v2(self) -> None:
+        """هجرة قيد entity: إضافة 'conflict' و'delta' لقواعد قديمة.
+
+        SQLite لا يدعم ALTER لـ CHECK، فإعادة البناء هي الطريق الوحيد —
+        الصفوف كلها محفوظة، وجدول correction_applications لا يُلمس أصلاً
+        (مرجعية FK تبقى على اسم corrections الذي يعود بالـ RENAME).
+        التنظيف الذاتي في المقدمة يجعلها idempotent عند أي انقطاع.
+        """
+        row = self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='corrections'"
+        ).fetchone()
+        if row is None or "'conflict'" in row["sql"]:
+            return  # قاعدة جديدة أو مهاجرة سابقاً
+        ddl = resources.files("orthopaedic_knowledge.storage").joinpath(
+            "corrections_schema.sql").read_text(encoding="utf-8")
+        segment = ddl.split("CREATE TABLE IF NOT EXISTS", 1)[1].split(";", 1)[0]
+        body = segment[segment.index("("):]  # جسم الأعمدة فقط بعد إسقاط الاسم
+        cols = ("entity, match_rule, entity_key, field, old_value,"
+                " new_value, reviewer, created_at")
+        self.conn.executescript(f"""
+            DROP TABLE IF EXISTS __corrections_v2;
+            PRAGMA foreign_keys=OFF;
+            CREATE TABLE __corrections_v2{body};
+            INSERT INTO __corrections_v2 ({cols}) SELECT {cols} FROM corrections;
+            DROP TABLE corrections;
+            ALTER TABLE __corrections_v2 RENAME TO corrections;
+            CREATE INDEX IF NOT EXISTS idx_corr_lookup
+                ON corrections(entity, match_rule, entity_key);
+            PRAGMA foreign_keys=ON;
+        """)
 
     def close(self) -> None:
         self.conn.close()

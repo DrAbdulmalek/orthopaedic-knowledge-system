@@ -110,8 +110,11 @@ def _cmd_review(args) -> int:
     if not Path(args.db).exists():
         print(f"قاعدة التوليف غير موجودة: {args.db} — شغّل synthesize أولاً", file=sys.stderr)
         return 1
+    if args.knowledge_db and not Path(args.knowledge_db).exists():
+        print(f"القاعدة المعرفية غير موجودة: {args.knowledge_db}", file=sys.stderr)
+        return 1
     print(f"واجهة المراجعة المحلية: http://127.0.0.1:{args.port} (Ctrl+C للإيقاف)")
-    run_server(args.db, args.port)
+    run_server(args.db, args.port, args.knowledge_db, args.corrections_db)
     return 0
 
 
@@ -276,6 +279,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("review",
                         help="واجهة المراجعة البشرية المحلية لحسم التعارضات (127.0.0.1 فقط)")
     sp.add_argument("--db", default="out/synthesis/synthesis.db")
+    sp.add_argument("--knowledge-db", default=None,
+                    help="قاعدة المصطلحات (افتراضياً knowledge.db بجوار --db)")
+    sp.add_argument("--corrections-db", default=None,
+                    help="سجل القرارات القانوني (افتراضياً corrections.db بجوار --db)")
     sp.add_argument("--port", type=int, default=8000)
     sp.set_defaults(func=_cmd_review)
 

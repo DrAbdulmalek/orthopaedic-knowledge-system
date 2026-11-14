@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "orthopaedic-knowledge"
-version = "0.3.0"
+version = "0.3.1"
 description = "منظومة المعرفة والترجمة العظمية — Orthopaedic Knowledge & Translation System (Local-First, Manjaro, EN–AR sentence alignment + concept-oriented terminology)"
 readme = "README.md"
 requires-python = ">=3.11"
