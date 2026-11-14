@@ -20,8 +20,52 @@ from .layout_parser import _CAPTION_RE
 from .models import ChapterDocument, TextBlock
 
 
-def extract_pdf_blocks(pdf_path: str | Path, book_code: str, chapter: str, lang: str) -> ChapterDocument:
-    """افتح PDF محلياً واستخرج كتلاً واعيةاة للتخطيط (صفحة + bbox + نوع)."""
+def parse_pages(spec: str | None) -> frozenset[int] | None:
+    """حلّ نطاق الصفحات «110-140» أو «110,112,115-118» (عدّاد يبدأ من 1).
+
+    None يعني كل الصفحات. أي نطاق تالف رفض صريح — لا تخمين.
+    """
+    if spec is None or not spec.strip():
+        return None
+    pages: set[int] = set()
+    for token in spec.replace("،", ",").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if "-" in token:
+            start_s, _, end_s = token.partition("-")
+            try:
+                start, end = int(start_s), int(end_s)
+            except ValueError as exc:
+                raise ValueError(f"نطاق صفحات تالف: {token!r}") from exc
+            if start < 1 or end < start:
+                raise ValueError(f"نطاق صفحات غير منطقي: {token!r} (العدّاد يبدأ من 1)")
+            pages.update(range(start, end + 1))
+        else:
+            try:
+                n = int(token)
+            except ValueError as exc:
+                raise ValueError(f"رقم صفحة تالف: {token!r}") from exc
+            if n < 1:
+                raise ValueError(f"رقم صفحة غير منطقي: {token!r} (العدّاد يبدأ من 1)")
+            pages.add(n)
+    if not pages:
+        raise ValueError(f"نطاق صفحات فارغ: {spec!r}")
+    return frozenset(pages)
+
+
+def extract_pdf_blocks(
+    pdf_path: str | Path,
+    book_code: str,
+    chapter: str,
+    lang: str,
+    pages: str | None = None,
+) -> ChapterDocument:
+    """افتح PDF محلياً واستخرج كتلاً واعيةاة للتخطيط (صفحة + bbox + نوع).
+
+    pages: نطاق اختياري «110-140» لقصّ فصل من كتاب كامل — أرقام الصفحات في
+    الإثبات تبقى أرقام الملف الأصلي (لا إعادة ترقيم).
+    """
     try:
         import fitz  # PyMuPDF
     except ImportError as exc:
@@ -30,9 +74,12 @@ def extract_pdf_blocks(pdf_path: str | Path, book_code: str, chapter: str, lang:
             "(الوضع Local-First يمنع أي تنزيل وقت التشغيل)"
         ) from exc
 
+    wanted = parse_pages(pages)
     doc = ChapterDocument(book_code=book_code, chapter=chapter, lang=lang)
     with fitz.open(str(pdf_path)) as pdf:  # ملف تالف → استثناء صريح (رفض، لا تخمين)
         for page in pdf:
+            if wanted is not None and (page.number + 1) not in wanted:
+                continue
             for block in page.get_text("blocks"):
                 x0, y0, x1, y1, text = block[0], block[1], block[2], block[3], block[4]
                 if len(block) > 6 and block[6] == 1:  # كتلة صورة بلا نص

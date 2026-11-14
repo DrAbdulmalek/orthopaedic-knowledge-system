@@ -62,7 +62,8 @@ def _cmd_align(args) -> int:
 def _cmd_ingest_pdf(args) -> int:
     from .ingestion.pdf_extract import export_blocks_jsonl, extract_pdf_blocks
 
-    doc = extract_pdf_blocks(args.pdf, args.book_code, args.chapter, args.lang)
+    doc = extract_pdf_blocks(args.pdf, args.book_code, args.chapter, args.lang,
+                             pages=getattr(args, "pages", None))
     count = export_blocks_jsonl(doc, args.out)
     print(f"{count} كتلة → {args.out}")
     return 0
@@ -257,6 +258,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--book-code", required=True)
     sp.add_argument("--chapter", required=True, help="مثال: CH04")
     sp.add_argument("--lang", choices=["en", "ar"], required=True)
+    sp.add_argument("--pages", default=None,
+                    help="قصّ فصل من كتاب كامل: «110-140» أو «110,112,115-118» (افتراضي: كل الصفحات)")
     sp.add_argument("--out", required=True, help="ملف JSONL الناتج (لأمر align --format jsonl)")
     sp.set_defaults(func=_cmd_ingest_pdf)
 
